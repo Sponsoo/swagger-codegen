@@ -1,6 +1,11 @@
 package io.swagger.codegen.languages;
 
 import io.swagger.codegen.*;
+import io.swagger.models.Model;
+import io.swagger.models.Operation;
+import io.swagger.models.Swagger;
+import io.swagger.models.properties.Property;
+import io.swagger.models.properties.RefProperty;
 
 import java.util.HashSet;
 import java.util.List;
@@ -24,10 +29,22 @@ public class TypeScriptAureliaClientCodegen extends AbstractTypeScriptClientCode
         // at the moment
         importMapping.clear();
 
+        languageSpecificPrimitives.add("Map");
+        typeMapping.put("Set", "any");
+
         outputFolder = "generated-code/typescript-aurelia";
         embeddedTemplateDir = templateDir = "typescript-aurelia";
         this.cliOptions.add(new CliOption(NPM_NAME, "The name under which you want to publish generated npm package"));
         this.cliOptions.add(new CliOption(NPM_VERSION, "The version of your npm package"));
+    }
+
+    @Override
+    public CodegenOperation fromOperation(String path,
+                                          String httpMethod,
+                                          Operation operation,
+                                          Map<String, Model> definitions,
+                                          Swagger swagger) {
+        return super.fromOperation(path, httpMethod, operation, definitions, swagger);
     }
 
     @Override
@@ -44,9 +61,9 @@ public class TypeScriptAureliaClientCodegen extends AbstractTypeScriptClientCode
 
         // Set supporting files
         supportingFiles.add(new SupportingFile("models.mustache", "", "models.ts"));
-        supportingFiles.add(new SupportingFile("index.ts.mustache", "", "index.ts"));
         supportingFiles.add(new SupportingFile("Api.ts.mustache", "", "Api.ts"));
-        supportingFiles.add(new SupportingFile("AuthStorage.ts.mustache", "", "AuthStorage.ts"));
+        supportingFiles.add(new SupportingFile("HttpService.ts.mustache", "", "HttpService.ts"));
+        supportingFiles.add(new SupportingFile("TokenService.ts.mustache", "", "TokenService.ts"));
         supportingFiles.add(new SupportingFile("git_push.sh.mustache", "", "git_push.sh"));
         supportingFiles.add(new SupportingFile("README.md", "", "README.md"));
         supportingFiles.add(new SupportingFile("package.json.mustache", "", "package.json"));
@@ -79,6 +96,14 @@ public class TypeScriptAureliaClientCodegen extends AbstractTypeScriptClientCode
 
     public void setNpmVersion(String npmVersion) {
         this.npmVersion = npmVersion;
+    }
+
+    @Override
+    public String getTypeDeclaration(Property p) {
+        if (p instanceof RefProperty) {
+            return "I" + super.getTypeDeclaration(p);
+        }
+        return super.getTypeDeclaration(p);
     }
 
     @Override

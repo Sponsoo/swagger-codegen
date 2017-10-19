@@ -1,0 +1,155 @@
+{{>licenseInfo}}
+import { HttpClient, HttpResponseMessage, RequestBuilder }
+  from 'aurelia-http-client';
+
+import { TokenService }
+  from './TokenService';
+
+const BASE_PATH = '{{{basePath}}}'
+  .replace(/^(https?:\/\/)?[^\/]+/, '')
+  .replace(/\/+$/, '');
+
+/**
+ * Class to handle http requests
+ */
+export class HttpService {
+
+  private static client: HttpClient;
+
+  /**
+   * Returns HTTP client.
+   */
+  public static getClient(): HttpClient {
+    if (!this.client) {
+      this.client = new HttpClient();
+      this.client.configure((builder) => {
+        builder
+          .withBaseUrl(BASE_PATH)
+          .withInterceptor({
+            response(message: HttpResponseMessage): HttpResponseMessage {
+              const { headers } = message;
+
+              const csrfToken = headers.get('XSRF-TOKEN');
+              csrfToken && TokenService.setCsrfToken(csrfToken);
+
+              return message;
+            },
+          })
+        ;
+      });
+    }
+
+    return this.client;
+  }
+
+  /**
+   * Creates request.
+   */
+  public static createRequest(url: string): RequestBuilder {
+    return HttpService.getClient().createRequest(url);
+  }
+
+  /**
+   * Adds the authorization header to the request.
+   */
+  public static async addAuthHeader(token: string, header: string, req: RequestBuilder): Promise<RequestBuilder> {
+    if (token === 'UserToken') {
+      const token = TokenService.getUserToken() || await TokenService.reloadUserToken();
+      return req.withHeader(header, `Bearer ${token}`);
+    }
+
+    if (token === 'RefreshToken') {
+      const token = TokenService.getRefreshToken() || await TokenService.reloadRefreshToken();
+      return req.withHeader(header, `Bearer ${token}`);
+    }
+
+    if (token === 'CsrfToken') {
+      const token = await TokenService.reloadCsrfToken();
+      TokenService.clearCsrfToken();
+
+      return req.withHeader(header, token);
+    }
+
+    return req;
+  }
+
+  /**
+   * Adds the authorization param to the request.
+   */
+  public static async addAuthParam(token: string, param: string, req: RequestBuilder): Promise<RequestBuilder> {
+    if (token === 'UserToken') {
+      const token = TokenService.getUserToken() || await TokenService.reloadUserToken();
+
+      const params = {};
+      params[param] = token;
+
+      return req.withParams(params);
+    }
+
+    if (token === 'RefreshToken') {
+      const token = TokenService.getRefreshToken() || await TokenService.reloadRefreshToken();
+
+      const params = {};
+      params[param] = token;
+
+      return req.withParams(params);
+    }
+
+    if (token === 'CsrfToken') {
+      const token = await TokenService.reloadCsrfToken();
+      TokenService.clearCsrfToken();
+
+      const params = {};
+      params[param] = token;
+
+      return req.withParams(params);
+    }
+
+    return req;
+  }
+
+  /**
+   * Returns URL origin.
+   */
+  public static getOrigin(): string {
+    const { location } = window;
+    const { origin }   = location;
+
+    if (!origin) {
+      const hostname = location.hostname;
+      const protocol = location.protocol && `${location.protocol}//`;
+      const port     = location.port     && `:${location.port}`;
+
+      return `${protocol}${hostname}${port}`;
+    }
+
+    return origin;
+  }
+
+  /**
+   * Returns URI prefix.
+   */
+  public static getPrefix(): string {
+    const { location } = window;
+    const { pathname } = location;
+
+    const prefix = pathname.replace(/^\/*/, '');
+
+    return prefix.startsWith('app_dev.php') ? '/app_dev.php' : '';
+  }
+
+  /**
+   * Returns URL location with origin and prefix.
+   */
+  public static getLocation(): string {
+    return `${this.getOrigin()}${this.getPrefix()}`;
+  }
+
+  /**
+   * Checks if URL address is local.
+   */
+  public static isLocal(url: string): boolean {
+        return typeof url === 'string' && url.length && (url.startsWith('/') || url.startsWith(this.getOrigin()));
+  }
+
+}

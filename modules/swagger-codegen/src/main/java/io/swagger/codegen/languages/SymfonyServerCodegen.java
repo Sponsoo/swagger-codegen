@@ -103,6 +103,7 @@ public class SymfonyServerCodegen extends AbstractPhpCodegen implements CodegenC
 
         instantiationTypes.put("array", "array");
         instantiationTypes.put("map", "map");
+        instantiationTypes.put("set", "array");
 
 
         // provide primitives to mustache template
@@ -125,6 +126,7 @@ public class SymfonyServerCodegen extends AbstractPhpCodegen implements CodegenC
         typeMapping.put("DateTime", "\\DateTime");
         typeMapping.put("file", "\\SplFileObject");
         typeMapping.put("map", "map");
+        typeMapping.put("set", "array");
         typeMapping.put("array", "array");
         typeMapping.put("list", "array");
         typeMapping.put("object", "object");
@@ -280,6 +282,7 @@ public class SymfonyServerCodegen extends AbstractPhpCodegen implements CodegenC
             for (CodegenParameter param : op.allParams) {
                 final String simpleName = extractSimpleName(param.dataType);
                 param.vendorExtensions.put("x-simpleName", simpleName);
+
                 final boolean isScalarType = typeMapping.containsValue(param.dataType);
                 param.vendorExtensions.put("x-parameterType", isScalarType ? null : simpleName);
                 if (!isScalarType) {
@@ -295,8 +298,15 @@ public class SymfonyServerCodegen extends AbstractPhpCodegen implements CodegenC
                 // Add simple return type to response
                 if (response.dataType != null) {
                     final String dataType = extractSimpleName(response.dataType);
+                    final String importType = response.dataType.replaceFirst("\\[\\]$", "");
+                    final boolean isScalarType = typeMapping.containsValue(importType);
+
                     response.vendorExtensions.put("x-simpleName", dataType);
-                    imports.add(response.dataType.replaceFirst("\\[\\]$", ""));
+
+                    if (!isScalarType) {
+                        response.dataType = dataType;
+                        imports.add(importType);
+                    }
                 }
 
                 if (exception != null) {
@@ -328,18 +338,20 @@ public class SymfonyServerCodegen extends AbstractPhpCodegen implements CodegenC
         // Simplify model var type
         for (CodegenProperty var : model.vars) {
             if (var.datatype != null) {
-                final String importType = var.datatype.replaceFirst("\\[\\]$", "");
                 final String dataType = extractSimpleName(var.datatype);
+                final String importType = var.datatype.replaceFirst("\\[\\]$", "");
                 final boolean isScalarType = typeMapping.containsValue(importType);
                 var.vendorExtensions.put("x-fullType", var.datatype);
+
                 if (!isScalarType) {
                     var.vendorExtensions.put("x-typeAnnotation", dataType.endsWith("[]") ? "array" : dataType);
-                    imports.add(importType);
                     var.datatype = dataType;
+                    imports.add(importType);
                 }
 
                 if (var.isBoolean) {
-                    var.getter = var.getter.replaceAll("^get", "is");
+                    var.getter = var.getter.replaceAll("^get",  "is");
+                    var.getter = var.getter.replaceAll("^isIs([A-Z])", "is$1");
                 }
             }
         }

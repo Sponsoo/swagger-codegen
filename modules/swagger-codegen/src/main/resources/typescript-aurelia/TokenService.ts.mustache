@@ -1,0 +1,495 @@
+{{>licenseInfo}}
+{{>licenseInfo}}
+import { LogManager }
+  from 'aurelia-framework';
+
+import { BehaviorSubject }
+  from 'rxjs';
+
+import * as jwt
+  from 'jsonwebtoken';
+
+import { HttpService }
+  from './HttpService';
+
+export interface TokenStorageInterface {
+  [name: string]: BehaviorSubject<string | null>;
+}
+
+export class TokenService {
+
+  private static tokens:              TokenStorageInterface;
+  private static csrfTokenPromise:    Promise<string>;
+  private static userTokenPromise:    Promise<string>;
+  private static refreshTokenPromise: Promise<string>;
+
+  /**
+   * Reloads refresh token from the API server.
+   */
+  public static async reloadRefreshToken(): Promise<string> {
+    const logger = LogManager.getLogger('TokenService');
+    logger.debug('Reloading refresh token.');
+
+    try {
+      if (this.refreshTokenPromise) {
+        return await this.refreshTokenPromise;
+      }
+
+      this.refreshTokenPromise = new Promise<string>((resolve, reject) => {
+        const request = HttpService
+          .getClient()
+          .createRequest(`/security/refresh-token`)
+          .asGet()
+        ;
+
+        return HttpService
+          .addAuthHeader('XSRF-TOKEN', 'CsrfToken', request)
+          .then(() => {
+            return request
+              .send()
+              .then((response) => {
+                if (response.statusCode < 200 || response.statusCode >= 300) {
+                  throw reject(response.content);
+                }
+
+                const jwt = response.content;
+                this.setRefreshToken(jwt);
+
+                return resolve(jwt);
+              });
+          });
+      });
+
+      await this.refreshTokenPromise;
+      logger.info('Reloaded refresh token.');
+
+      return this.getRefreshToken();
+    } catch (e) {
+      logger.error('Reloading refresh token failed:', e);
+
+      if (e.statusCode < 200 || e.statusCode >= 300) {
+        this.setRefreshToken(null);
+        this.setUserToken(null);
+        window.location.href = '/login';
+      }
+
+      throw e;
+    } finally {
+      this.refreshTokenPromise = null;
+    }
+  }
+
+  /**
+   * Reloads user token from the API server.
+   */
+  public static async reloadUserToken(): Promise<string> {
+    const logger = LogManager.getLogger('TokenService');
+    logger.debug('Reloading user token.');
+
+    try {
+      if (this.userTokenPromise) {
+        return await this.userTokenPromise;
+      }
+
+      const refreshToken = this.getRefreshToken();
+
+      if (!refreshToken) {
+        // Clear user token
+        this.setUserToken(null);
+
+        logger.warn('Refresh token is missing.');
+        return Promise.reject('Refresh token is missing.');
+      }
+
+      this.userTokenPromise = new Promise<string>((resolve, reject) => {
+        const request = HttpService
+          .getClient()
+          .createRequest(`/security/user-token`)
+          .asGet()
+        ;
+
+        return HttpService
+          .addAuthHeader('RefreshToken', 'authorization', request)
+          .then(() => {
+            return request
+              .send()
+              .then((response) => {
+                if (response.statusCode < 200 || response.statusCode >= 300) {
+                  throw reject(response.content);
+                }
+
+                const jwt = response.content;
+                this.setUserToken(jwt);
+
+                return resolve(jwt);
+              });
+          });
+      });
+
+      await this.userTokenPromise;
+      logger.info('Reloaded user token.');
+
+      return this.getUserToken();
+    } catch (e) {
+      logger.error('Reloading user token failed:', e);
+
+      if (e.statusCode === 401 || e.statusCode === 403) {
+        this.setRefreshToken(null);
+      }
+
+      if (e.statusCode < 200 || e.statusCode >= 300) {
+        this.setUserToken(null);
+        window.location.href = '/login';
+      }
+
+      throw e;
+    } finally {
+      this.userTokenPromise = null;
+    }
+  }
+
+
+  /**
+   * Refreshes token from the API server.
+   */
+  public static async reloadCsrfToken(): Promise<string> {
+    const logger = LogManager.getLogger('TokenService');
+    logger.debug('Reloading CSRF token.');
+
+    try {
+      if (this.csrfTokenPromise) {
+        await this.csrfTokenPromise;
+        return this.getCsrfToken();
+      }
+
+      this.setCsrfToken(null);
+
+      this.csrfTokenPromise = new Promise<string>((resolve, reject) => {
+        const request = HttpService
+          .getClient()
+          .createRequest(`/security/csrf-token`)
+          .asGet()
+        ;
+
+        return request
+          .send()
+          .then((response) => {
+            if (response.statusCode < 200 || response.statusCode >= 300) {
+              throw reject(response.content);
+            }
+
+            return resolve(response.content);
+          });
+      });
+
+      await this.csrfTokenPromise;
+      logger.debug('Reloaded CSRF token.');
+
+      return this.getCsrfToken();
+    } catch (e) {
+      logger.error('Reloading CSRF token failed:', e);
+      throw e;
+    } finally {
+      this.csrfTokenPromise = null;
+    }
+  }
+
+  /**
+   * Returns token subjects.
+   */
+  public static getTokens(): TokenStorageInterface {
+    if (!this.tokens) {
+      this.tokens = { csrf: null, refresh: null, user: null };
+
+      const initFromCache = ['refresh', 'user'];
+      initFromCache.forEach((name) => this.initFromCache(name));
+
+      const initWithNull = ['csrf'];
+      initWithNull.forEach((name) => this.initWithNull(name));
+    }
+
+    return this.tokens;
+  }
+
+  /**
+   * Return the CSRF token subject.
+   */
+  public static getCsrfTokenSubject(): BehaviorSubject<string | null> {
+    return this.getTokens().csrf;
+  }
+
+  /**
+   * Returns value of the CSRF token.
+   */
+  public static getCsrfToken(): string | null {
+    return this.getCsrfTokenSubject().getValue();
+  }
+
+  /**
+   * Changes value of the CSRF token.
+   */
+  public static setCsrfToken(token: string | null): void {
+    const logger = LogManager.getLogger('TokenService');
+    logger.debug('Setting CSRF token:', token);
+
+    this.getCsrfTokenSubject().next(token);
+  }
+
+  /**
+   * Clears value of the CSRF token.
+   */
+  public static clearCsrfToken(): void {
+    const logger = LogManager.getLogger('TokenService');
+    logger.debug('Clearing CSRF token.');
+
+    this.getCsrfTokenSubject().next(null);
+  }
+
+  /**
+   * Return the refresh token subject.
+   */
+  public static getRefreshTokenSubject(): BehaviorSubject<string | null> {
+    const { refresh } = this.getTokens();
+    const value = refresh.getValue();
+
+    if (value) {
+      const logger = LogManager.getLogger('TokenService');
+      logger.debug('Refresh token found.');
+
+      const decoded: any = jwt.decode(value);
+
+      if (!decoded) {
+        logger.debug('Refresh token is invalid.');
+
+        this.flushRefreshToken();
+        refresh.next(null);
+
+        // Must be after flush
+        this.setUserToken(null);
+
+        return refresh;
+      }
+
+      const exp = parseInt(localStorage.getItem('exp_refresh'));
+
+      if (!exp || exp <= 0) {
+        logger.debug('Refresh token expiration timestamp is missing.');
+
+        // Flush before the change!
+        this.flushRefreshToken();
+        refresh.next(null);
+
+        // Clear user token
+        this.setUserToken(null);
+
+        return refresh;
+      }
+
+      const now = Math.round((new Date()).getTime() / 1000);
+
+      if (exp - 5 * 60 <= now) {
+        logger.debug('Refresh token has expired.');
+
+        // Flush before the change!
+        this.flushRefreshToken();
+        refresh.next(null);
+
+        // Clear user token
+        this.setUserToken(null);
+
+        return refresh;
+      }
+    }
+
+    return refresh;
+  }
+
+  /**
+   * Returns value of the refresh token.
+   */
+  public static getRefreshToken(): string | null {
+    return this.getRefreshTokenSubject().getValue();
+  }
+
+  /**
+   * Changes value of the refresh token.
+   */
+  public static setRefreshToken(token: string | null): void {
+    const logger = LogManager.getLogger('TokenService');
+    logger.debug('Setting refresh token:', token);
+
+    const decoded: any = jwt.decode(token);
+
+    if (!decoded || !decoded.dur) {
+      // Flush before the change!
+      this.flushRefreshToken();
+      this.getRefreshTokenSubject().next(null);
+
+      // Clear user token
+      this.setUserToken(null);
+
+      return;
+    }
+
+    const now = Math.round((new Date()).getTime() / 1000);
+    const exp = now + parseInt(decoded.dur);
+
+    // Save before the change!
+    this.saveToCache('token_refresh', token);
+    this.saveToCache('exp_refresh', exp.toString());
+    this.getRefreshTokenSubject().next(token);
+  }
+
+  /**
+   * Flushes value of the refresh token.
+   */
+  public static flushRefreshToken(): void {
+    this.clearFromCache('token_refresh');
+    this.clearFromCache('exp_refresh');
+  }
+
+  /**
+   * Return the user token subject.
+   */
+  public static getUserTokenSubject(): BehaviorSubject<string | null> {
+    const { user } = this.getTokens();
+    const value = user.getValue();
+
+    if (value) {
+      const logger = LogManager.getLogger('TokenService');
+      logger.debug('User token found.');
+
+      const exp = parseInt(localStorage.getItem('exp_user'));
+
+      if (!exp || exp <= 0) {
+        logger.debug('User token expiration timestamp is missing.');
+
+        // Flush before change!
+        this.flushUserToken();
+        user.next(null);
+
+        return user;
+      }
+
+      const now = Math.round((new Date()).getTime() / 1000);
+
+      if (exp - 60 <= now) {
+        logger.debug('User token has expired.');
+
+        // Save before the change!
+        this.flushUserToken();
+        user.next(null);
+
+        return user;
+      }
+    }
+
+    return user;
+  }
+
+  /**
+   * Returns value of the user token.
+   */
+  public static getUserToken(): string | null {
+    return this.getUserTokenSubject().getValue();
+  }
+
+  /**
+   * Changes value of the user token
+   */
+  public static setUserToken(token: string | null): void {
+    const logger = LogManager.getLogger('TokenService');
+    logger.debug('Setting user token:', token);
+
+    const decoded: any = jwt.decode(token);
+
+    if (!decoded || !decoded.dur) {
+      // Flush before the change!
+      this.flushUserToken();
+      this.getUserTokenSubject().next(null);
+      return;
+    }
+
+    const now = Math.round((new Date()).getTime() / 1000);
+    const exp = now + parseInt(decoded.dur);
+
+    // Save before the change!
+    this.saveToCache('token_user', token);
+    this.saveToCache('exp_user', exp.toString());
+    this.getUserTokenSubject().next(token);
+  }
+
+  /**
+   * Clears value of the user token.
+   */
+  public static flushUserToken(): void {
+    this.clearFromCache('token_user');
+    this.clearFromCache('exp_user');
+  }
+
+  /**
+   * Load token from the cache.
+   */
+  private static loadFromCache(key: string): string | null {
+    const value = localStorage.getItem(key);
+
+    const logger = LogManager.getLogger('TokenService');
+    logger.debug('Loaded from cache:', key);
+
+    return value;
+  }
+
+  /**
+   * Store token to the cache.
+   */
+  private static saveToCache(key: string, value: string | null): void {
+    const logger = LogManager.getLogger('TokenService');
+    logger.debug('Saving to cache:', key);
+
+    localStorage.setItem(key, value);
+  }
+
+  /**
+   * Remove token from the cache.
+   */
+  private static clearFromCache(key: string): void {
+    const logger = LogManager.getLogger('TokenService');
+    logger.debug('Clearing from cache:', key);
+
+    localStorage.removeItem(key);
+  }
+
+  /**
+   * Initializes item with null value.
+   */
+  private static initWithNull(name: string): void {
+    const logger = LogManager.getLogger('TokenService');
+    logger.debug('Initialize with NULL:', name);
+
+    const tokens = this.getTokens();
+    tokens[name] = new BehaviorSubject(null);
+  }
+
+  /**
+   * Initializes item from the cache.
+   */
+  private static initFromCache(name: string): void {
+    const logger = LogManager.getLogger('TokenService');
+    logger.debug('Initialize from cache:', name);
+
+    const tokens = this.getTokens();
+
+    try {
+      // Load token from cache
+      const key   = `token_${name}`;
+      const value = this.loadFromCache(key);
+
+      // Create behavior subject with cached value
+      tokens[name] = new BehaviorSubject(value);
+    } catch (e) {
+      logger.error('Loading from cache failed:', e);
+      this.initWithNull(name);
+    }
+  }
+
+}

@@ -19,7 +19,8 @@
 
 namespace {{controllerPackage}};
 
-use \Exception;
+use Exception;
+use Throwable;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -149,34 +150,62 @@ class {{controllerName}} extends Controller
         {{/minItems}}
         {{/hasValidation}}
         {{/allParams}}
-
         // Call the API interface
         try {
             $handler = $this->getApiHandler();
 
+            // Set request
+            $handler->setRequest($request);
             {{#authMethods}}
+
             // Set authentication method '{{name}}'
             $handler->set{{name}}($security{{name}});
             {{/authMethods}}
             {{#returnType}}
+            {{#responses}}
+            {{^vendorExtensions.x-symfonyExceptionSimple}}
+
+            $response = new Response('', {{code}});
+
+            // Set response
+            $handler->setResponse($response);
+
             // Expecting a return value (exception otherwise)
             $result = $handler->{{operationId}}({{#allParams}}${{paramName}}{{#hasMore}}, {{/hasMore}}{{/allParams}});
 
-            {{#responses}}
-            {{^vendorExtensions.x-symfonyExceptionSimple}}
+            if ($result instanceof Response) {
+                return $result;
+            }
+
             // Handle {{code}} response: {{message}}
             $content = $this->serialize($result, 'json');
-            return new Response($content, {{code}}, [
-                'Content-Type' => 'application/json',
+
+            $response->setStatusCode({{code}});
+            $response->setContent($content);
+            $response->headers->add([
+                'Content-Type'      => 'application/json',
                 'X-Swagger-Message' => '{{message}}',
             ]);
+
+            return $handler->getResponse();
             {{/vendorExtensions.x-symfonyExceptionSimple}}
             {{/responses}}
             {{/returnType}}
             {{^returnType}}
+
+            $response = new Response('', 204);
+
+            // Set response
+            $handler->setResponse($response);
+
             // No return type expected; return empty response
-            $handler->{{operationId}}({{#allParams}}${{paramName}}{{#hasMore}}, {{/hasMore}}{{/allParams}});
-            return new Response('', 204);
+            $result = $handler->{{operationId}}({{#allParams}}${{paramName}}{{#hasMore}}, {{/hasMore}}{{/allParams}});
+
+            if ($result instanceof Response) {
+                return $result;
+            }
+
+            return $handler->getResponse();
             {{/returnType}}
         {{#responses}}
         {{#vendorExtensions.x-symfonyExceptionSimple}}
@@ -185,8 +214,12 @@ class {{controllerName}} extends Controller
             return $this->createErrorResponse($exception);
         {{/vendorExtensions.x-symfonyExceptionSimple}}
         {{/responses}}
-        } catch (Exception $fallthrough) {
-            return $this->createErrorResponse(new HttpException(500, 'An unsuspected error occurred.', $fallthrough));
+        } catch (HttpException $exception) {
+            return $this->createErrorResponse($exception);
+        } catch (Exception $exception) {
+            return $this->createErrorResponse(new HttpException(500, 'An unsuspected error occurred.', $exception));
+        } catch (Throwable $throwable) {
+            return $this->createErrorResponse(new HttpException(500, $throwable->getMessage()));
         }
     }
     {{/operation}}

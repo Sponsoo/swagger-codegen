@@ -1,19 +1,5 @@
 {{>licenseInfo}}
-import { HttpClient } from 'aurelia-http-client';
-import { AuthStorage } from './AuthStorage';
-
-const BASE_PATH = '{{{basePath}}}'.replace(/\/+$/, '');
-
 export class Api {
-  basePath: string;
-  httpClient: HttpClient;
-  authStorage: AuthStorage;
-
-  constructor(httpClient: HttpClient, authStorage: AuthStorage, basePath: string = BASE_PATH) {
-    this.basePath = basePath;
-    this.httpClient = httpClient;
-    this.authStorage = authStorage;
-  }
 
   /**
    * Encodes a query string.
@@ -62,4 +48,5 @@ export class Api {
       throw new Error(`Missing required parameter ${paramName} when calling ${context}`);
     }
   }
+
 }
