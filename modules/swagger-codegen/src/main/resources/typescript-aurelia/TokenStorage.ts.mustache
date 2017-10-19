@@ -1,0 +1,46 @@
+{{>licenseInfo}}
+import { BehaviorSubject } from 'rxjs';
+
+export class TokenStorage {
+
+  private readonly tokens: { [name: string]: BehaviorSubject<string | null> } = {
+    csrf: new BehaviorSubject<string | null>(null),
+    user: new BehaviorSubject<string | null>(null),
+    refresh: new BehaviorSubject<string | null>(null),
+  };
+
+  getCsrfToken(): string | null {
+    const token = this.tokens.csrf.getValue();
+    this.setCsrfToken(null);
+    return token;
+  }
+
+  setCsrfToken(csrfToken: string | null): void {
+    this.tokens.csrf.next(csrfToken);
+  }
+
+  getUserTokenSubject(): BehaviorSubject<string | null> {
+    return this.tokens.user;
+  }
+
+  getUserToken(): string | null {
+    return this.tokens.user.getValue();
+  }
+
+  setUserToken(userToken: string | null): void {
+    this.tokens.user.next(userToken);
+  }
+
+  getRefreshTokenSubject(): BehaviorSubject<string | null> {
+    return this.tokens.refresh;
+  }
+
+  getRefreshToken(): string | null {
+    return this.tokens.refresh.getValue();
+  }
+
+  setRefreshToken(refreshToken: string | null): void {
+    this.tokens.refresh.next(refreshToken);
+  }
+
+}

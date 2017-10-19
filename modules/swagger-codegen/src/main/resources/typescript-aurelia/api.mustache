@@ -1,20 +1,19 @@
 {{>licenseInfo}}
-import { autoinject }
-  from 'aurelia-framework';
-
-import { Api }
-  from './Api';
-
-import { HttpService }
-  from './HttpService';
-
+import { EventAggregator } from 'aurelia-event-aggregator';
+import { autoinject }      from 'aurelia-framework';
+import { Api }             from './Api';
+import {
+  AfterResponseEvent,
+  BeforeRequestEvent,
+  HttpService,
+}     from './HttpService';
 import {
 {{#modelImports}}  I{{this}},
 {{/modelImports}}
-} from './models';
-
+}                          from './models';
 {{#operations}}
 {{#operation}}
+
 /**
  * {{operationId}} - parameters interface
  */
@@ -22,7 +21,6 @@ export interface I{{operationIdCamelCase}}Params {
 {{#allParams}}  {{paramName}}{{^required}}?{{/required}}: {{^isPrimitiveType}}I{{/isPrimitiveType}}{{{dataType}}};
 {{/allParams}}
 }
-
 {{/operation}}
 
 /**
@@ -30,8 +28,8 @@ export interface I{{operationIdCamelCase}}Params {
  * {{&description}}{{/description}}
  */
 export interface I{{classname}} {
-
 {{#operation}}
+
   /**{{#summary}}
    * {{summary}}
    *{{/summary}}{{#notes}}
@@ -39,8 +37,8 @@ export interface I{{classname}} {
    * @param params.{{paramName}} {{description}}{{/allParams}}
    */
   {{nickname}}({{#hasParams}}params: I{{operationIdCamelCase}}Params{{/hasParams}});
-
 {{/operation}}
+
 }
 
 /**
@@ -50,7 +48,14 @@ export interface I{{classname}} {
 @autoinject()
 export class {{classname}} extends Api implements I{{classname}} {
 
+  /**
+   * Creates a new {{classname}} class.
+   */
+  constructor(protected events: EventAggregator, httpService: HttpService) {
+    super(events, httpService);
+  }
 {{#operation}}
+
   /**{{#summary}}
    * {{summary}}
    *{{/summary}}{{#notes}}
@@ -58,6 +63,8 @@ export class {{classname}} extends Api implements I{{classname}} {
    * @param params.{{paramName}} {{description}}{{/allParams}}
    */
   async {{nickname}}({{#hasParams}}params: I{{operationIdCamelCase}}Params{{/hasParams}}): Promise<{{#returnType}}{{{returnType}}}{{/returnType}}{{^returnType}}any{{/returnType}}> {
+    let request, response;
+
     // Verify required parameters are set
 {{#allParams}}
 {{#required}}
@@ -69,43 +76,72 @@ export class {{classname}} extends Api implements I{{classname}} {
     const url = `{{{path}}}`{{#pathParams}}
       .replace(`{${'{{baseName}}'}}`, `${params['{{paramName}}']}`){{/pathParams}};
 
-    const request = HttpService.createRequest(url)
-      // Set HTTP method
-      .as{{httpMethod}}()
+    request = this.httpService.createRequest(url);
+
+    // Set HTTP method
+    request.as{{httpMethod}}();
+
+    // Create before request event
+    const beforeEvent: BeforeRequestEvent = { url, authentication: [], request };
+{{#hasBodyParam}}
+{{#bodyParam}}
+
+    beforeEvent.body = params['{{paramName}}'];
+{{/bodyParam}}
+{{/hasBodyParam}}
+{{#authMethods}}
+{{#isApiKey}}
+
+    // Authentication '{{name}}' required
+    beforeEvent.authentication.push('{{name}}');
+{{/isApiKey}}
+{{/authMethods}}
+
+    // Publish before request event
+    this.events.publish('swagger:request:before', beforeEvent);
+
+    if (beforeEvent.promise) {
+      await beforeEvent.promise;
+    }
+
+    request = beforeEvent.request;
 {{#hasQueryParams}}
-      // Set query parameters
-      .withParams({
-        {{#queryParams}}'{{baseName}}': params['{{paramName}}'],
-        {{/queryParams}}
-      })
+
+    // Set query parameters
+    request.withParams({
+      {{#queryParams}}'{{baseName}}': params['{{paramName}}'],
+      {{/queryParams}}
+    });
 {{/hasQueryParams}}
 {{#hasFormParams}}
-      // Encode form parameters
-      .withHeader('content-type', 'application/x-www-form-urlencoded')
-      .withContent(this.queryString({
-        {{#formParams}}'{{baseName}}': params['{{paramName}}'],
-        {{/formParams}}
-      }))
+
+    // Encode form parameters
+    request.withHeader('content-type', 'application/x-www-form-urlencoded');
+    request.withContent(this.queryString({
+      {{#formParams}}'{{baseName}}': params['{{paramName}}'],
+      {{/formParams}}
+    }));
 {{/hasFormParams}}
 {{#hasBodyParam}}
 {{#bodyParam}}
-      // Encode body parameter
-      .withHeader('content-type', 'application/json')
-      .withContent(JSON.stringify(params['{{paramName}}'] || {}))
+
+    // Encode body parameter
+    request.withHeader('content-type', 'application/json');
+    request.withContent(JSON.stringify(params['{{paramName}}'] || {}));
 {{/bodyParam}}
 {{/hasBodyParam}}
 {{#headerParams}}
-      .withHeader('{{baseName}}', params['{{paramName}}']){{/headerParams}}
-    ;
+    request.withHeader('{{baseName}}', params['{{paramName}}']);
+{{/headerParams}}
 {{#authMethods}}
 
     // Authentication '{{name}}' required
 {{#isApiKey}}
 {{#isKeyInHeader}}
-    await HttpService.addAuthHeader('{{name}}', '{{keyParamName}}', request);
+    await this.httpService.addAuthHeader('{{name}}', '{{keyParamName}}', request);
 {{/isKeyInHeader}}
 {{#isKeyInQuery}}
-    await HttpService.addAutParam('{{name}}, '{{keyParamName}}', request);
+    await this.httpService.addAuthParam('{{name}}, '{{keyParamName}}', request);
 {{/isKeyInQuery}}
 {{/isApiKey}}
 {{/authMethods}}
@@ -113,13 +149,19 @@ export class {{classname}} extends Api implements I{{classname}} {
 
     if (['POST', 'PUT', 'PATCH', 'DELETE'].indexOf('{{httpMethod}}'.toUpperCase()) !== -1) {
       // CSRF authorization required
-      await HttpService.addAuthHeader('CsrfToken', 'XSRF-TOKEN', request);
+      await this.httpService.addAuthHeader('CsrfToken', 'XSRF-TOKEN', request);
     }
 {{/hasAuthMethods}}
 
     // Send the request
-    const response = await request.send();
+    response = await request.send();
 
+    // Publish after response event
+    const afterEvent: AfterResponseEvent = { url, response };
+    this.events.publish('swagger:response:after', afterEvent);
+    response = await afterEvent.response;
+
+    // Check for response status
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw new Error(response.content);
     }
@@ -127,8 +169,7 @@ export class {{classname}} extends Api implements I{{classname}} {
     // Extract the content
     return response.content;
   }
-
 {{/operation}}
-}
 
+}
 {{/operations}}
