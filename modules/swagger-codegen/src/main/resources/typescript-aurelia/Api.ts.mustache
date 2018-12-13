@@ -1,5 +1,13 @@
 {{>licenseInfo}}
+import { EventAggregator } from 'aurelia-event-aggregator';
+import { HttpService }     from './HttpService';
+
 export class Api {
+
+  /**
+   * Constructor.
+   */
+  constructor(protected events: EventAggregator, protected httpService: HttpService) {}
 
   /**
    * Encodes a query string.
@@ -11,7 +19,7 @@ export class Api {
     const queries = [];
     for (let key in params) {
       const value = this.toString(params[key]);
-      if (value != null) {
+      if (value !== null) {
         queries.push(`${key}=${encodeURIComponent(value)}`);
       }
     }
@@ -29,10 +37,14 @@ export class Api {
       return null;
     }
     switch (typeof value) {
-      case 'undefined': return null;
-      case 'boolean': return value ? 'true' : 'false';
-      case 'string': return value;
-      default: return '' + value;
+      case 'undefined':
+        return null;
+      case 'boolean':
+        return value ? 'true' : 'false';
+      case 'string':
+        return value;
+      default:
+        return '' + value;
     }
   }
 
