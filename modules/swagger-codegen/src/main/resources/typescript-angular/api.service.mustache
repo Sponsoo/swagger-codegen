@@ -1,34 +1,48 @@
 {{>licenseInfo}}
 
+// @ts-ignore
 import { Inject, Injectable, Optional } from '@angular/core';
 {{#useHttpClient}}
+// @ts-ignore
 import { HttpClient, HttpHeaders, HttpParams, HttpResponse, HttpEvent } from '@angular/common/http';
+// @ts-ignore
 import { CustomHttpUrlEncodingCodec } from '../encoder';
 {{/useHttpClient}}
 {{^useHttpClient}}
+// @ts-ignore
 import { Http, Headers, URLSearchParams } from '@angular/http';
+// @ts-ignore
 import { RequestMethod, RequestOptions, RequestOptionsArgs } from '@angular/http';
+// @ts-ignore
 import { Response, ResponseContentType } from '@angular/http';
+// @ts-ignore
 import { CustomQueryEncoderHelper } from '../encoder';
 {{/useHttpClient}}
 
 {{^useRxJS6}}
+// @ts-ignore
 import { Observable } from 'rxjs/Observable';
 {{/useRxJS6}}
 {{#useRxJS6}}
+// @ts-ignore
 import { Observable } from 'rxjs';
 {{/useRxJS6}}
 {{^useHttpClient}}
+// @ts-ignore
 import '../rxjs-operators';
 {{/useHttpClient}}
 
 {{#imports}}
+// @ts-ignore
 import { {{classname}} } from '../{{filename}}';
 {{/imports}}
 
+// @ts-ignore
 import { BASE_PATH, COLLECTION_FORMATS } from '../variables';
+// @ts-ignore
 import { Configuration } from '../configuration';
 {{#withInterfaces}}
+// @ts-ignore
 import { {{classname}}Interface } from './{{classFilename}}Interface';
 {{/withInterfaces}}
 
@@ -226,6 +240,7 @@ export class {{classname}} {
         }
 
         // to determine the Content-Type header
+        // @ts-ignore
         const consumes: string[] = [
             {{#consumes}}
             '{{{mediaType}}}'{{#hasMore}},{{/hasMore}}
@@ -244,9 +259,10 @@ export class {{classname}} {
 {{/bodyParam}}
 
 {{#hasFormParams}}
+        // @ts-ignore
         const canConsumeForm = consumes.includes('multipart/form-data');
 
-        let formParams: { append(param: string, value: any): void; };
+        let formParams: { append(param: string, value: any): any; };
         let useForm = false;
         let convertFormParamsToString = false;
 {{#formParams}}
